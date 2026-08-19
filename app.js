@@ -42,17 +42,19 @@ let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
 let deepMode = true;
 
-function fmtDate(d){ return d.toISOString().slice(0,10); }
-function setNextWeekend(){
-  const now = new Date();
-  const day = now.getDay();
-  const daysToFriday = (5 - day + 7) % 7 || 7;
-  const fri = new Date(now); fri.setDate(now.getDate()+daysToFriday);
-  const sun = new Date(fri); sun.setDate(fri.getDate()+2);
-  els.dateFrom.value = fmtDate(fri);
-  els.dateTo.value = fmtDate(sun);
+function fmtDate(d){
+  const y=d.getFullYear();
+  const m=String(d.getMonth()+1).padStart(2,"0");
+  const day=String(d.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
 }
-setNextWeekend();
+function setToday(){
+  const now = new Date();
+  els.dateFrom.value = fmtDate(now);
+  els.dateTo.value = fmtDate(now);
+}
+setToday();
+els.nextWeekendBtn.textContent="Heute auswählen";
 
 DEFAULT_COUNTRIES.forEach(([de,en])=>{
   const b=document.createElement("button");
@@ -83,7 +85,7 @@ els.saveKeyBtn.onclick=()=>{
   els.statusBadge.classList.toggle("live",!!k);
   els.message.textContent=k?"API-Key nur auf diesem Gerät gespeichert.":"API-Key entfernt.";
 };
-els.nextWeekendBtn.onclick=setNextWeekend;
+els.nextWeekendBtn.onclick=setToday;
 els.deepModeBtn.onclick=()=>{
   deepMode=!deepMode;
   els.deepModeBtn.classList.toggle("active",deepMode);
@@ -317,6 +319,14 @@ function safeWebUrl(x){
     return u.protocol==="https:"||u.protocol==="http:"?u.href:"#";
   }catch(e){return "#"}
 }
+function friendlyError(error){
+  const message=String(error?.message||error||"");
+  const match=message.match(/Free plans do not have access to this date, try from (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/i);
+  if(match){
+    return `Dein Gratis-Tarif erlaubt aktuell nur Daten vom ${match[1]} bis ${match[2]}. Klicke auf „Heute auswählen“ und versuche es erneut.`;
+  }
+  return message;
+}
 function render(){
   els.body.innerHTML="";
   results.sort((a,b)=>b.score-a.score).slice(0,20).forEach((r,i)=>{
@@ -514,7 +524,7 @@ async function analyze(){
     els.progressBar.style.width="100%";
     els.message.textContent=`Fertig: ${results.length} Kandidaten bewertet. Tabelle zeigt die besten 20.`;
   }catch(e){
-    els.message.textContent="Fehler: "+e.message;
+    els.message.textContent="Fehler: "+friendlyError(e);
   }finally{
     setTimeout(()=>els.progress.classList.add("hidden"),1200);
   }
