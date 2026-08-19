@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#101827" />
+  <title>Bernd Tore</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <div class="eyebrow">BERND • TORSCOUT</div>
+      <h1>Über 2,5 – beste Spiele</h1>
+      <p>Eine gemeinsame Rangliste über deine ausgewählten Länder und Ligen.</p>
+    </div>
+    <div id="statusBadge" class="badge">Demo</div>
+  </header>
+
+  <main>
+    <section class="card">
+      <h2>1. Datenquelle</h2>
+      <p class="muted">
+        Trage deinen kostenlosen API‑Football-Schlüssel ein. Er bleibt nur auf diesem Gerät gespeichert.
+      </p>
+      <div class="row">
+        <input id="apiKey" type="password" placeholder="API‑Football Key" autocomplete="off" />
+        <button id="saveKeyBtn" class="secondary">Speichern</button>
+      </div>
+      <div class="tiny">Ohne Key funktioniert die App im Demo-Modus.</div>
+      <hr class="softline">
+      <h3>Web-Recherche</h3>
+      <p class="muted">Optional: Tavily-Key für aktuelle Fußball-News aus dem Web. Der Key bleibt nur auf diesem Gerät.</p>
+      <div class="row">
+        <input id="tavilyKey" type="password" placeholder="Tavily API Key (tvly-…)" autocomplete="off" />
+        <button id="saveTavilyBtn" class="secondary">Web-Key speichern</button>
+      </div>
+      <div class="tiny">Mit Web-Key recherchiert Bernd die Top 3 zusätzlich nach Verletzungen, Sperren, Transfers, Trainer und Aufstellungen.</div>
+    </section>
+
+    <section class="card">
+      <h2>2. Wochenende wählen</h2>
+      <div class="grid2">
+        <label>Von
+          <input id="dateFrom" type="date" />
+        </label>
+        <label>Bis
+          <input id="dateTo" type="date" />
+        </label>
+      </div>
+      <div class="quick">
+        <button id="nextWeekendBtn" class="secondary">Nächstes Wochenende</button>
+        <button id="deepModeBtn" class="secondary active">Bernd-Check: Top 5</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Länder</h2>
+      <div id="countries" class="chips"></div>
+      <p class="tiny">Die Auswahl enthält jetzt auch die Ligen aus deinen drei Screenshots, soweit der Datenanbieter sie führt.</p>
+    </section>
+
+    <section class="card">
+      <div class="actions">
+        <button id="analyzeBtn" class="primary">⚽ BERND ANALYSIEREN</button>
+        <button id="demoBtn" class="secondary">Demo anzeigen</button>
+      </div>
+      <div id="progress" class="progress hidden">
+        <div id="progressBar"></div>
+      </div>
+      <p id="message" class="muted"></p>
+    </section>
+
+    <section class="card table-card">
+      <div class="table-head">
+        <div>
+          <h2>🔥 Bernds gemeinsame Over‑2,5-Tabelle</h2>
+          <p class="muted">Je höher der Score, desto stärker das Torprofil. Keine Garantie.</p>
+        </div>
+        <button id="exportBtn" class="secondary">CSV</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Land / Liga</th>
+              <th>Begegnung</th>
+              <th>Ü 2,5</th>
+              <th>Score</th>
+              <th>Bernd-Tendenz</th>
+              <th>Recherche</th><th>Details</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Was Bernd automatisch prüft</h2>
+      <div class="checkgrid">
+        <span>✓ letzte 20 Pflichtspiele</span>
+        <span>✓ Heim-/Auswärtsform</span>
+        <span>✓ Tore & Gegentore</span>
+        <span>✓ Over 1,5 / 2,5 / 3,5</span>
+        <span>✓ BTTS</span>
+        <span>✓ H2H bis 10 Spiele</span>
+        <span>✓ Verletzungen</span>
+        <span>✓ Sidelined / längere Ausfälle</span>
+        <span>✓ Transfers / Neuzugänge / Abgänge</span>
+        <span>✓ Trainer / Trainerhistorie</span>
+        <span>✓ verfügbare Aufstellungen</span>
+        <span>✓ Team-Saisonstatistik</span>
+        <span>✓ Top-Torjäger der Liga</span>
+        <span>✓ API-Prognose / erwartete Tore</span>
+      </div>
+      <div class="research-note">
+        <b>V4 Web-Research:</b> Mit Tavily-Key durchsucht Bernd für die Top 3 aktuelle Webquellen nach
+        Verletzungen/Krankheiten, Sperren, Transfers, Trainerwechseln, Aufstellungen und Team-News.
+        Quellen und Kurzantworten werden im Detailfenster angezeigt.
+      </div>
+    </section>
+  </main>
+
+  <dialog id="detailsDialog">
+    <button id="closeDialog" class="dialog-close">×</button>
+    <div id="detailsContent"></div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
