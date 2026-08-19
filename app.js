@@ -308,6 +308,15 @@ function researchStatus(r){
 }
 
 function safeText(x){return (x==null||x==="")?"–":String(x)}
+function escapeHtml(x){
+  return safeText(x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+function safeWebUrl(x){
+  try{
+    const u=new URL(String(x));
+    return u.protocol==="https:"||u.protocol==="http:"?u.href:"#";
+  }catch(e){return "#"}
+}
 function render(){
   els.body.innerHTML="";
   results.sort((a,b)=>b.score-a.score).slice(0,20).forEach((r,i)=>{
@@ -315,11 +324,11 @@ function render(){
     const tr=document.createElement("tr");
     tr.innerHTML=`
       <td class="rank">${i+1}</td>
-      <td>${r.country}<br><span class="tiny">${r.league}</span></td>
-      <td class="match">${r.home} – ${r.away}</td>
+      <td>${escapeHtml(r.country)}<br><span class="tiny">${escapeHtml(r.league)}</span></td>
+      <td class="match">${escapeHtml(r.home)} – ${escapeHtml(r.away)}</td>
       <td class="over">Ü 2,5<br><span class="fire">${stars(r.score)}</span></td>
       <td class="score">${Math.round(r.score)}/100</td>
-      <td>${tendency(r)}</td>
+      <td>${escapeHtml(tendency(r))}</td>
       <td><span class="${rs.done>=10?'research-ok':'research-partial'}">${rs.done}/${rs.total}</span></td>
       <td><button class="secondary detailBtn">Ansehen</button></td>`;
     tr.querySelector(".detailBtn").onclick=()=>openDetails(r,i+1);
@@ -330,8 +339,8 @@ function render(){
 function openDetails(r,rank){
   const hs=r.homeStats,as=r.awayStats, rs=researchStatus(r);
   const transfers=[...(r.transfersHome||[]),...(r.transfersAway||[])].slice(0,12);
-  const scorerHtml=(r.topScorers||[]).map(x=>`<div class="source-pill"><span>${x.name} (${x.team})</span><b>${x.goals} Tore</b></div>`).join("");
-  const transferHtml=transfers.map(x=>`<div class="source-pill"><span>${x.type}: ${x.player}</span><span>${x.date||""}</span></div>`).join("");
+  const scorerHtml=(r.topScorers||[]).map(x=>`<div class="source-pill"><span>${escapeHtml(x.name)} (${escapeHtml(x.team)})</span><b>${Number(x.goals)||0} Tore</b></div>`).join("");
+  const transferHtml=transfers.map(x=>`<div class="source-pill"><span>${escapeHtml(x.type)}: ${escapeHtml(x.player)}</span><span>${escapeHtml(x.date||"")}</span></div>`).join("");
   const checks=[
     ["Letzte 20 / Form",!!hs&&!!as],["H2H bis 10",Array.isArray(r.h2h)],["Verletzungen",Array.isArray(r.injuries)],
     ["Sidelined",Array.isArray(r.sidelinedHome)&&Array.isArray(r.sidelinedAway)],
@@ -341,8 +350,8 @@ function openDetails(r,rank){
     ["API-Prognose",!!r.prediction],["Web-News / Personal / Taktik",!!r.webResearch]
   ];
   els.details.innerHTML=`
-    <div class="eyebrow">RANG ${rank} • ${r.country} • ${r.league}</div>
-    <h2 style="font-size:24px;margin-top:6px">${r.home} – ${r.away}</h2>
+    <div class="eyebrow">RANG ${rank} • ${escapeHtml(r.country)} • ${escapeHtml(r.league)}</div>
+    <h2 style="font-size:24px;margin-top:6px">${escapeHtml(r.home)} – ${escapeHtml(r.away)}</h2>
     <p class="over">Bernd: Über 2,5 • ${stars(r.score)} • Score ${Math.round(r.score)}/100</p>
     <p class="muted">Recherche-Abdeckung: ${rs.done}/${rs.total} strukturierte Prüfpunkte</p>
 
@@ -351,19 +360,19 @@ function openDetails(r,rank){
     </div>
 
     ${hs?`<div class="detail-grid">
-      <div class="detail-box">${r.home}: Spiele geprüft<b>${hs.n}</b></div>
-      <div class="detail-box">${r.away}: Spiele geprüft<b>${as.n}</b></div>
-      <div class="detail-box">${r.home}: Ü1,5 / Ü2,5 / Ü3,5<b>${Math.round(hs.over15Pct)}% / ${Math.round(hs.overPct)}% / ${Math.round(hs.over35Pct)}%</b></div>
-      <div class="detail-box">${r.away}: Ü1,5 / Ü2,5 / Ü3,5<b>${Math.round(as.over15Pct)}% / ${Math.round(as.overPct)}% / ${Math.round(as.over35Pct)}%</b></div>
-      <div class="detail-box">${r.home}: BTTS<b>${Math.round(hs.bttsPct)}%</b></div>
-      <div class="detail-box">${r.away}: BTTS<b>${Math.round(as.bttsPct)}%</b></div>
-      <div class="detail-box">${r.home}: Ø Tore / Gegentore<b>${hs.avgGF.toFixed(2)} / ${hs.avgGA.toFixed(2)}</b></div>
-      <div class="detail-box">${r.away}: Ø Tore / Gegentore<b>${as.avgGF.toFixed(2)} / ${as.avgGA.toFixed(2)}</b></div>
+      <div class="detail-box">${escapeHtml(r.home)}: Spiele geprüft<b>${hs.n}</b></div>
+      <div class="detail-box">${escapeHtml(r.away)}: Spiele geprüft<b>${as.n}</b></div>
+      <div class="detail-box">${escapeHtml(r.home)}: Ü1,5 / Ü2,5 / Ü3,5<b>${Math.round(hs.over15Pct)}% / ${Math.round(hs.overPct)}% / ${Math.round(hs.over35Pct)}%</b></div>
+      <div class="detail-box">${escapeHtml(r.away)}: Ü1,5 / Ü2,5 / Ü3,5<b>${Math.round(as.over15Pct)}% / ${Math.round(as.overPct)}% / ${Math.round(as.over35Pct)}%</b></div>
+      <div class="detail-box">${escapeHtml(r.home)}: BTTS<b>${Math.round(hs.bttsPct)}%</b></div>
+      <div class="detail-box">${escapeHtml(r.away)}: BTTS<b>${Math.round(as.bttsPct)}%</b></div>
+      <div class="detail-box">${escapeHtml(r.home)}: Ø Tore / Gegentore<b>${hs.avgGF.toFixed(2)} / ${hs.avgGA.toFixed(2)}</b></div>
+      <div class="detail-box">${escapeHtml(r.away)}: Ø Tore / Gegentore<b>${as.avgGF.toFixed(2)} / ${as.avgGA.toFixed(2)}</b></div>
     </div>`:""}
 
     <h3>Personal</h3>
-    <p><b>Trainer ${r.home}:</b> ${safeText(r.coachHome?.name)}</p>
-    <p><b>Trainer ${r.away}:</b> ${safeText(r.coachAway?.name)}</p>
+    <p><b>Trainer ${escapeHtml(r.home)}:</b> ${escapeHtml(r.coachHome?.name)}</p>
+    <p><b>Trainer ${escapeHtml(r.away)}:</b> ${escapeHtml(r.coachAway?.name)}</p>
     <p><b>Verletzungen fürs Spiel:</b> ${r.injuries?.length??"–"}</p>
     <p><b>Länger fehlend / sidelined:</b> ${(r.sidelinedHome?.length??0)+(r.sidelinedAway?.length??0)}</p>
 
@@ -376,14 +385,14 @@ function openDetails(r,rank){
     <h3>Direkter Vergleich & Aufstellung</h3>
     <p><b>H2H:</b> ${r.h2h?.length??"–"} Spiele verfügbar.</p>
     <p><b>Aufstellungen:</b> ${r.lineups?.length?`${r.lineups.length} Team-Aufstellungen verfügbar`:"vor Spielbeginn ggf. noch nicht verfügbar"}.</p>
-    <p><b>API-Tendenz:</b> ${r.prediction?.predictions?.advice||"keine"}</p>
+    <p><b>API-Tendenz:</b> ${escapeHtml(r.prediction?.predictions?.advice||"keine")}</p>
 
     <h3>Aktuelle Web-Recherche</h3>
     ${r.webResearch?`
-      ${(r.webResearch.tags||[]).map(t=>`<span class="web-tag">${t}</span>`).join("")}
-      ${(r.webResearch.answers||[]).map(a=>`<div class="web-answer">${a}</div>`).join("")}
+      ${(r.webResearch.tags||[]).map(t=>`<span class="web-tag">${escapeHtml(t)}</span>`).join("")}
+      ${(r.webResearch.answers||[]).map(a=>`<div class="web-answer">${escapeHtml(a)}</div>`).join("")}
       <div class="source-list">
-        ${(r.webResearch.results||[]).slice(0,8).map(s=>`<div class="source-pill"><a class="web-source" href="${s.url}" target="_blank" rel="noopener">${s.title}</a><span>${s.domain}</span></div>`).join("")}
+        ${(r.webResearch.results||[]).slice(0,8).map(s=>`<div class="source-pill"><a class="web-source" href="${safeWebUrl(s.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title)}</a><span>${escapeHtml(s.domain)}</span></div>`).join("")}
       </div>
     `:"<p class='muted'>Kein Tavily-Key gesetzt oder keine Web-Ergebnisse verfügbar.</p>"}
     <div class="research-note"><b>Bernd-Regel:</b> Webtreffer werden als Zusatzinformation gezeigt. Die App erfindet keine Ausfälle oder Transfers, wenn keine Quelle gefunden wurde.</div>
