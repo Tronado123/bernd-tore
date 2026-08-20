@@ -50,6 +50,10 @@ if(scoreHeading){
 }
 const resultsTable=document.querySelector("table");
 if(resultsTable) resultsTable.style.minWidth="1080px";
+const tableTitle=document.querySelector(".table-head h2");
+if(tableTitle) tableTitle.textContent="🔥 Torstärkste Spiele aus allen geprüften Ligen";
+const tableNote=document.querySelector(".table-head .muted");
+if(tableNote) tableNote.textContent="Nur Spiele mit starkem Tor-Signal werden angezeigt. Keine Garantie.";
 
 let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
@@ -68,6 +72,7 @@ function setToday(){
 }
 setToday();
 els.nextWeekendBtn.textContent="Heute auswählen";
+els.deepModeBtn.textContent="Bernd-Check: Top 3";
 
 DEFAULT_COUNTRIES.forEach(([de,en])=>{
   const b=document.createElement("button");
@@ -102,7 +107,7 @@ els.nextWeekendBtn.onclick=setToday;
 els.deepModeBtn.onclick=()=>{
   deepMode=!deepMode;
   els.deepModeBtn.classList.toggle("active",deepMode);
-  els.deepModeBtn.textContent=deepMode?"Bernd-Check: Top 5":"Bernd-Check: aus";
+  els.deepModeBtn.textContent=deepMode?"Bernd-Check: Top 3":"Bernd-Check: aus";
 };
 els.closeDialog.onclick=()=>els.dialog.close();
 
@@ -175,20 +180,12 @@ function webResearchSummary(searches){
 
 function leagueLooksRelevant(league){
   const n=(league.name||"").toLowerCase();
-  const banned=["cup","pokal","copa","coupe","super cup","supercup","women","fémin","femin","u19","youth"];
-  if(banned.some(x=>n.includes(x))) return false;
-  const allowedHints=[
-    "a-league","npl","premier league","premier division","pro league","wysheyshaya","jupiler","challenger",
-    "liga de fútbol","serie a","serie b","parva liga","super league","primera división","superliga",
-    "bundesliga","2. bundesliga","3. liga","championship","league one","league two","national league",
-    "meistriliiga","veikkausliiga","ykkösliiga","ligue 1","ligue 2","besta deild","ligat ha'al","j1 league",
-    "canadian premier","qsl","categoría primera","hnl","virsliga","toplyga","a lyga","bgl ligue","botola pro",
-    "prva crnogorska","eredivisie","eerste divisie","nifl premiership","eliteserien","obos-ligaen","2. division",
-    "2. liga","liga 1","ekstraklasa","1. liga","liga portugal","liga portugal 2","liga 3","division 1",
-    "allsvenskan","superettan","nike liga","la liga","primera rfef","k league 1","division 2","süper lig","1. lig",
-    "segunda división","mls","usl championship","cymru premier","cyprus league","nb i"
+  if(!n) return false;
+  const banned=[
+    "cup","pokal","copa","coupe","super cup","supercup","friendly","friendlies",
+    "women","fémin","femin","youth","reserve"," u17"," u18"," u19"," u20"," u21"," u23"
   ];
-  return allowedHints.some(x=>n.includes(x));
+  return !banned.some(x=>n.includes(x));
 }
 
 function basicFixtureScore(f){
@@ -214,12 +211,46 @@ function predictionScore(p){
     const total=gh+ga;
     score += Math.max(-12,Math.min(22,(total-2.2)*12));
   }
-  if(underOver.includes("+2.5") || underOver.toLowerCase().includes("over")) score+=9;
-  if(advice.includes("over")) score+=5;
+  const line=underOver.match(/([+-])\s*(\d+(?:\.\d+)?)/);
+  if(line){
+    const threshold=Number(line[2]);
+    if(line[1]==="+") score+=10+Math.max(0,threshold-1.5)*7;
+    else if(threshold<=2.5) score-=14;
+    else if(threshold<=3.5) score-=5;
+  }
+  if(underOver.toLowerCase().includes("over")) score+=10;
+  if(underOver.toLowerCase().includes("under")) score-=8;
+  if(advice.includes("over")) score+=8;
+  if(advice.includes("under")) score-=6;
   const cmp=p?.comparison||{};
   const attH=parseFloat(cmp.att?.home), attA=parseFloat(cmp.att?.away);
   if(Number.isFinite(attH)&&Number.isFinite(attA)) score+=(attH+attA-100)/20;
   return Math.max(35,Math.min(92,score));
+}
+
+function hasStrongGoalSignal(item){
+  const prediction=item.prediction?.predictions||{};
+  const underOver=String(prediction.under_over||"").toLowerCase();
+  const advice=String(prediction.advice||"").toLowerCase();
+  const expected=modelExpectedGoals(item);
+  return expected.home+expected.away>=3 || item.score>=62 || /\+\s*(2\.5|3\.5|4\.5)/.test(underOver) || underOver.includes("over") || advice.includes("over");
+}
+
+function spreadAcrossLeagues(fixtures,limit){
+  const groups=new Map();
+  fixtures.forEach(f=>{
+    const key=String(f.league?.id??`${f.league?.country}-${f.league?.name}`);
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(f);
+  });
+  const queues=[...groups.values()];
+  const selected=[];
+  while(selected.length<limit&&queues.some(q=>q.length)){
+    for(const queue of queues){
+      if(queue.length&&selected.length<limit) selected.push(queue.shift());
+    }
+  }
+  return selected;
 }
 
 function recentStats(fixtures, teamId){
@@ -254,6 +285,7 @@ function recentStats(fixtures, teamId){
 }
 
 function deepScore(base, hs, as, h2h, injuries){
+  if(!hs||!as||hs.n<3||as.n<3) return base;
   const combinedOver=(hs.overPct+as.overPct)/2;
   const combinedGoals=hs.avgGF+hs.avgGA+as.avgGF+as.avgGA;
   let s=base*0.5 + combinedOver*0.35 + Math.min(18,Math.max(0,(combinedGoals-4)*4));
@@ -404,7 +436,7 @@ function friendlyError(error){
 }
 function render(){
   els.body.innerHTML="";
-  results.sort((a,b)=>b.score-a.score).slice(0,20).forEach((r,i)=>{
+  results.slice(0,15).forEach((r,i)=>{
     const rs=researchStatus(r);
     const probabilities=modelProbabilities(r);
     const tr=document.createElement("tr");
@@ -503,9 +535,9 @@ async function analyze(){
     fixtures=fixtures.filter(f=>selectedCountries.has(f.league.country)&&leagueLooksRelevant(f.league));
     if(!fixtures.length) throw new Error("Für diese Auswahl wurden keine passenden Ligaspiele gefunden.");
 
-    // Maximal 28 Kandidaten im kostenlosen Modus – schützt die Tagesquote.
-    let candidates=fixtures.map(f=>({f,pre:basicFixtureScore(f)}))
-      .sort((a,b)=>b.pre-a.pre).slice(0,28);
+    // Bis zu 45 Spiele, fair über die verfügbaren Ligen verteilt.
+    // Zusammen mit dem Top-3-Deep-Check bleibt die Analyse unter dem typischen Gratis-Tageslimit.
+    let candidates=spreadAcrossLeagues(fixtures,45).map(f=>({f,pre:basicFixtureScore(f)}));
 
     els.message.textContent=`${fixtures.length} Ligaspiele gefunden. Bernd prüft ${candidates.length} Kandidaten mit Prognosedaten…`;
     let scored=[];
@@ -527,7 +559,7 @@ async function analyze(){
     scored.sort((a,b)=>b.score-a.score);
 
     if(deepMode){
-      const deep=scored.slice(0,5);
+      const deep=scored.slice(0,3);
       els.message.textContent="Bernd-Check: Form, H2H, Verletzungen, Transfers, Trainer, Aufstellungen und Statistiken…";
       for(let i=0;i<deep.length;i++){
         const r=deep[i];
@@ -578,10 +610,21 @@ async function analyze(){
         els.progressBar.style.width=`${62+35*(i+1)/deep.length}%`;
       }
     }
-    // Aktuelle Web-Recherche für Top 3. Zwei Basic-Suchen pro Spiel = normalerweise 6 Tavily-Credits je Analyse.
+    const goalCandidates=scored
+      .filter(hasStrongGoalSignal)
+      .sort((a,b)=>{
+        const totalB=modelExpectedGoals(b).home+modelExpectedGoals(b).away;
+        const totalA=modelExpectedGoals(a).home+modelExpectedGoals(a).away;
+        return totalB-totalA||b.score-a.score;
+      });
+    if(!goalCandidates.length){
+      throw new Error("Heute wurde kein Spiel mit ausreichend starkem Tor-Signal gefunden. Bernd zeigt bewusst keine schwachen Tipps an.");
+    }
+
+    // Aktuelle Web-Recherche für die drei torstärksten Kandidaten.
     const webKey=localStorage.getItem("berndTavilyKey")||els.tavilyKey?.value.trim();
     if(webKey){
-      const webTop=scored.sort((a,b)=>b.score-a.score).slice(0,3);
+      const webTop=goalCandidates.slice(0,3);
       els.message.textContent="Bernd durchsucht aktuelle Webquellen für die Top 3…";
       for(let i=0;i<webTop.length;i++){
         const r=webTop[i];
@@ -597,10 +640,10 @@ async function analyze(){
       }
     }
 
-    results=scored.sort((a,b)=>b.score-a.score);
+    results=goalCandidates.slice(0,15);
     render();
     els.progressBar.style.width="100%";
-    els.message.textContent=`Fertig: ${results.length} Kandidaten bewertet. Tabelle zeigt die besten 20.`;
+    els.message.textContent=`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. Angezeigt werden nur ${results.length} Spiele mit starkem Tor-Signal.`;
   }catch(e){
     els.message.textContent="Fehler: "+friendlyError(e);
   }finally{
