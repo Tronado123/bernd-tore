@@ -37,6 +37,8 @@ const els = {
   details: document.querySelector("#detailsContent"),
   closeDialog: document.querySelector("#closeDialog")
 };
+const tendencyHeading=document.querySelector("thead th:nth-child(6)");
+if(tendencyHeading) tendencyHeading.textContent="Wahrscheinlichstes Ergebnis";
 
 let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
@@ -254,13 +256,28 @@ function stars(score){
   return"🔥🔥🔥";
 }
 
+function poisson(k,lambda){
+  let factorial=1;
+  for(let i=2;i<=k;i++) factorial*=i;
+  return Math.exp(-lambda)*Math.pow(lambda,k)/factorial;
+}
+
 function tendency(item){
-  const s=item.score;
-  const p=item.prediction?.predictions;
-  if(p?.goals?.home && p?.goals?.away) return `${p.goals.home}:${p.goals.away}`;
-  if(s>=82)return"3:1 / 3:2";
-  if(s>=74)return"2:1 / 2:2";
-  return"2:1";
+  const hs=item.homeStats, as=item.awayStats;
+  if(!hs||!as||hs.n<3||as.n<3) return "keine Schätzung";
+
+  // Erwartete Tore aus eigener Offensive und gegnerischer Defensive.
+  // Der kleine Heimbonus bildet den üblichen Heimvorteil ab.
+  const homeLambda=Math.max(0.15,Math.min(4.5,(hs.avgGF+as.avgGA)/2+0.15));
+  const awayLambda=Math.max(0.15,Math.min(4.5,(as.avgGF+hs.avgGA)/2));
+  let best={home:0,away:0,p:-1};
+  for(let home=0;home<=7;home++){
+    for(let away=0;away<=7;away++){
+      const p=poisson(home,homeLambda)*poisson(away,awayLambda);
+      if(p>best.p) best={home,away,p};
+    }
+  }
+  return `${best.home}:${best.away}`;
 }
 
 
