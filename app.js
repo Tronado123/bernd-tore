@@ -38,7 +38,18 @@ const els = {
   closeDialog: document.querySelector("#closeDialog")
 };
 const tendencyHeading=document.querySelector("thead th:nth-child(6)");
-if(tendencyHeading) tendencyHeading.textContent="Wahrscheinlichstes Ergebnis";
+if(tendencyHeading) tendencyHeading.textContent="Wahrscheinlichster Endstand";
+const scoreHeading=document.querySelector("thead th:nth-child(5)");
+if(scoreHeading){
+  const over35Heading=document.createElement("th");
+  over35Heading.textContent="Ü 3,5";
+  const firstHalfHeading=document.createElement("th");
+  firstHalfHeading.textContent="1. HZ Ü 1,5";
+  scoreHeading.parentNode.insertBefore(over35Heading,scoreHeading);
+  scoreHeading.parentNode.insertBefore(firstHalfHeading,scoreHeading);
+}
+const resultsTable=document.querySelector("table");
+if(resultsTable) resultsTable.style.minWidth="1080px";
 
 let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
@@ -194,7 +205,11 @@ function predictionScore(p){
   const goals=p?.predictions?.goals||{};
   const underOver=(p?.predictions?.under_over||"").toString();
   const advice=(p?.predictions?.advice||"").toLowerCase();
-  const gh=parseFloat(goals.home), ga=parseFloat(goals.away);
+  const numericGoal=value=>{
+    const text=String(value??"").trim();
+    return /^\d+(\.\d+)?$/.test(text)?Number(text):NaN;
+  };
+  const gh=numericGoal(goals.home), ga=numericGoal(goals.away);
   if(Number.isFinite(gh)&&Number.isFinite(ga)){
     const total=gh+ga;
     score += Math.max(-12,Math.min(22,(total-2.2)*12));
@@ -209,7 +224,7 @@ function predictionScore(p){
 
 function recentStats(fixtures, teamId){
   const games=fixtures.slice(0,20);
-  let gf=0,ga=0,o15=0,o25=0,o35=0,btts=0,homeN=0,awayN=0,homeGoals=0,awayGoals=0,valid=0;
+  let gf=0,ga=0,o15=0,o25=0,o35=0,btts=0,homeN=0,awayN=0,homeGoals=0,awayGoals=0,valid=0,htValid=0,htOver15=0;
   for(const x of games){
     const home=x.teams.home.id===teamId;
     const a=home?x.goals.home:x.goals.away;
@@ -222,12 +237,19 @@ function recentStats(fixtures, teamId){
     if(t>=4)o35++;
     if(a>0&&b>0)btts++;
     if(home){homeN++;homeGoals+=t}else{awayN++;awayGoals+=t}
+    const htHome=x.score?.halftime?.home;
+    const htAway=x.score?.halftime?.away;
+    if(htHome!=null&&htAway!=null){
+      htValid++;
+      if(Number(htHome)+Number(htAway)>=2) htOver15++;
+    }
   }
   const n=Math.max(valid,1);
   return {
     n:valid,gf,ga,avgGF:gf/n,avgGA:ga/n,
     over15Pct:o15/n*100,overPct:o25/n*100,over35Pct:o35/n*100,bttsPct:btts/n*100,
-    homeAvgTotal:homeN?homeGoals/homeN:0,awayAvgTotal:awayN?awayGoals/awayN:0
+    homeAvgTotal:homeN?homeGoals/homeN:0,awayAvgTotal:awayN?awayGoals/awayN:0,
+    htValid,firstHalfOver15Pct:htValid?htOver15/htValid*100:0
   };
 }
 
@@ -262,18 +284,54 @@ function poisson(k,lambda){
   return Math.exp(-lambda)*Math.pow(lambda,k)/factorial;
 }
 
-function tendency(item){
+function modelExpectedGoals(item){
   const hs=item.homeStats, as=item.awayStats;
-  if(!hs||!as||hs.n<3||as.n<3) return "keine Schätzung";
+  if(hs&&as&&hs.n>=3&&as.n>=3){
+    return {
+      home:Math.max(0.15,Math.min(4.5,(hs.avgGF+as.avgGA)/2+0.15)),
+      away:Math.max(0.15,Math.min(4.5,(as.avgGF+hs.avgGA)/2)),
+      detailed:true
+    };
+  }
 
-  // Erwartete Tore aus eigener Offensive und gegnerischer Defensive.
-  // Der kleine Heimbonus bildet den üblichen Heimvorteil ab.
-  const homeLambda=Math.max(0.15,Math.min(4.5,(hs.avgGF+as.avgGA)/2+0.15));
-  const awayLambda=Math.max(0.15,Math.min(4.5,(as.avgGF+hs.avgGA)/2));
+  // Gratis-Fallback: Score bestimmt die erwartete Gesamttorzahl;
+  // API-Siegprozente verteilen sie auf Heim und Auswärts.
+  const total=Math.max(1.6,Math.min(4.2,2.5+(Number(item.score||50)-50)*0.025));
+  const percent=item.prediction?.predictions?.percent||{};
+  const homePct=parseFloat(percent.home);
+  const awayPct=parseFloat(percent.away);
+  const advantage=Number.isFinite(homePct)&&Number.isFinite(awayPct)?(homePct-awayPct)/300:0.04;
+  const homeShare=Math.max(0.35,Math.min(0.68,0.52+advantage));
+  return {home:total*homeShare,away:total*(1-homeShare),detailed:false};
+}
+
+function probabilityAtLeast(lambda,minGoals){
+  let below=0;
+  for(let goals=0;goals<minGoals;goals++) below+=poisson(goals,lambda);
+  return Math.max(0,Math.min(1,1-below));
+}
+
+function modelProbabilities(item){
+  const expected=modelExpectedGoals(item);
+  const total=expected.home+expected.away;
+  const stats=item.homeStats&&item.awayStats?{
+    over35:(item.homeStats.over35Pct+item.awayStats.over35Pct)/200,
+    firstHalf:item.homeStats.htValid>=3&&item.awayStats.htValid>=3
+      ?(item.homeStats.firstHalfOver15Pct+item.awayStats.firstHalfOver15Pct)/200
+      :null
+  }:null;
+  return {
+    over35:stats?.over35??probabilityAtLeast(total,4),
+    firstHalfOver15:stats?.firstHalf??probabilityAtLeast(total*0.45,2)
+  };
+}
+
+function tendency(item){
+  const expected=modelExpectedGoals(item);
   let best={home:0,away:0,p:-1};
   for(let home=0;home<=7;home++){
     for(let away=0;away<=7;away++){
-      const p=poisson(home,homeLambda)*poisson(away,awayLambda);
+      const p=poisson(home,expected.home)*poisson(away,expected.away);
       if(p>best.p) best={home,away,p};
     }
   }
@@ -348,12 +406,15 @@ function render(){
   els.body.innerHTML="";
   results.sort((a,b)=>b.score-a.score).slice(0,20).forEach((r,i)=>{
     const rs=researchStatus(r);
+    const probabilities=modelProbabilities(r);
     const tr=document.createElement("tr");
     tr.innerHTML=`
       <td class="rank">${i+1}</td>
       <td>${escapeHtml(r.country)}<br><span class="tiny">${escapeHtml(r.league)}</span></td>
       <td class="match">${escapeHtml(r.home)} – ${escapeHtml(r.away)}</td>
       <td class="over">Ü 2,5<br><span class="fire">${stars(r.score)}</span></td>
+      <td class="over">${Math.round(probabilities.over35*100)}%</td>
+      <td class="over">${Math.round(probabilities.firstHalfOver15*100)}%</td>
       <td class="score">${Math.round(r.score)}/100</td>
       <td>${escapeHtml(tendency(r))}</td>
       <td><span class="${rs.done>=10?'research-ok':'research-partial'}">${rs.done}/${rs.total}</span></td>
@@ -560,8 +621,15 @@ els.demoBtn.onclick=()=>{results=demo.map(x=>({...x}));render();els.message.text
 
 els.exportBtn.onclick=()=>{
   if(!results.length)return;
-  const rows=[["Rang","Land","Liga","Begegnung","Tipp","Score","Tendenz"]];
-  results.slice(0,20).forEach((r,i)=>rows.push([i+1,r.country,r.league,`${r.home} - ${r.away}`,"Über 2,5",Math.round(r.score),tendency(r)]));
+  const rows=[["Rang","Land","Liga","Begegnung","Tipp","Ü 3,5","1. HZ Ü 1,5","Score","Wahrscheinlichster Endstand"]];
+  results.slice(0,20).forEach((r,i)=>{
+    const probabilities=modelProbabilities(r);
+    rows.push([
+      i+1,r.country,r.league,`${r.home} - ${r.away}`,"Über 2,5",
+      `${Math.round(probabilities.over35*100)}%`,`${Math.round(probabilities.firstHalfOver15*100)}%`,
+      Math.round(r.score),tendency(r)
+    ]);
+  });
   const csv=rows.map(row=>row.map(v=>`"${String(v).replaceAll('"','""')}"`).join(";")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="bernd-over25.csv";a.click();
