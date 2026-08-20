@@ -52,9 +52,9 @@ if(scoreHeading){
 const resultsTable=document.querySelector("table");
 if(resultsTable) resultsTable.style.minWidth="1080px";
 const tableTitle=document.querySelector(".table-head h2");
-if(tableTitle) tableTitle.textContent="🔥 Beste Tor-Kandidaten aus allen geprüften Ligen";
+if(tableTitle) tableTitle.textContent="🔥 Sehr starke Tor-Tipps aus allen geprüften Ligen";
 const tableNote=document.querySelector(".table-head .muted");
-if(tableNote) tableNote.textContent="Nach Ü-2,5-Wahrscheinlichkeit sortiert; Stärke wird als sehr hoch, hoch, mittel oder niedrig gekennzeichnet. Keine Garantie.";
+if(tableNote) tableNote.textContent="Strenger Filter: nur vollständig statistisch geprüfte Spiele mit mindestens 68 % für Ü 2,5 und einem Tor-Endstand ab 3 – oder mindestens 55 % für Ü 3,5 und einem Tor-Endstand ab 4. Keine Garantie.";
 
 let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
@@ -73,7 +73,7 @@ function setToday(){
 }
 setToday();
 els.nextWeekendBtn.textContent="Heute auswählen";
-els.deepModeBtn.textContent="Bernd-Check: Top 3";
+els.deepModeBtn.textContent="Bernd-Check: Top 4";
 
 DEFAULT_COUNTRIES.forEach(([de,en])=>{
   const b=document.createElement("button");
@@ -108,7 +108,7 @@ els.nextWeekendBtn.onclick=setToday;
 els.deepModeBtn.onclick=()=>{
   deepMode=!deepMode;
   els.deepModeBtn.classList.toggle("active",deepMode);
-  els.deepModeBtn.textContent=deepMode?"Bernd-Check: Top 3":"Bernd-Check: aus";
+  els.deepModeBtn.textContent=deepMode?"Bernd-Check: Top 4":"Bernd-Check: aus";
 };
 els.closeDialog.onclick=()=>els.dialog.close();
 
@@ -375,6 +375,20 @@ function tendency(item){
   return `${best.home}:${best.away}`;
 }
 
+function likelyGoalTotal(item){
+  return tendency(item).split(":").reduce((sum,value)=>sum+Number(value||0),0);
+}
+
+function isStrictGoalCandidate(item){
+  const probabilities=modelProbabilities(item);
+  const total=likelyGoalTotal(item);
+  const statisticallyChecked=!!item.coverage?.prediction&&!!item.coverage?.form;
+  return statisticallyChecked&&(
+    (probabilities.over25>=0.68&&total>=3)||
+    (probabilities.over35>=0.55&&total>=4)
+  );
+}
+
 
 function latestTransfers(transfers, teamId){
   const out=[];
@@ -538,9 +552,9 @@ async function analyze(){
     fixtures=fixtures.filter(f=>selectedCountries.has(f.league.country)&&leagueLooksRelevant(f.league));
     if(!fixtures.length) throw new Error("Für diese Auswahl wurden keine passenden Ligaspiele gefunden.");
 
-    // Bis zu 45 Spiele, fair über die verfügbaren Ligen verteilt.
-    // Zusammen mit dem Top-3-Deep-Check bleibt die Analyse unter dem typischen Gratis-Tageslimit.
-    let candidates=spreadAcrossLeagues(fixtures,45).map(f=>({f,pre:basicFixtureScore(f)}));
+    // Bis zu 40 Spiele, fair über die verfügbaren Ligen verteilt.
+    // Zusammen mit dem Top-4-Deep-Check bleibt eine Analyse knapp unter 100 API-Anfragen.
+    let candidates=spreadAcrossLeagues(fixtures,40).map(f=>({f,pre:basicFixtureScore(f)}));
 
     els.message.textContent=`${fixtures.length} Ligaspiele gefunden. Bernd prüft ${candidates.length} Kandidaten mit Prognosedaten…`;
     let scored=[];
@@ -565,7 +579,7 @@ async function analyze(){
     scored.sort((a,b)=>b.score-a.score);
 
     if(deepMode){
-      const deep=scored.slice(0,3);
+      const deep=scored.slice(0,4);
       els.message.textContent="Bernd-Check: Form, H2H, Verletzungen, Transfers, Trainer, Aufstellungen und Statistiken…";
       for(let i=0;i<deep.length;i++){
         const r=deep[i];
@@ -630,11 +644,13 @@ async function analyze(){
           ||probsB.over25-probsA.over25||probsB.over35-probsA.over35||b.score-a.score;
       });
 
-    // Aktuelle Web-Recherche für die drei torstärksten Kandidaten.
+    const strictCandidates=goalCandidates.filter(isStrictGoalCandidate).slice(0,4);
+
+    // Aktuelle Web-Recherche nur für Kandidaten, die den strengen Torfilter bestanden haben.
     const webKey=localStorage.getItem("berndTavilyKey")||els.tavilyKey?.value.trim();
     if(webKey){
-      const webTop=goalCandidates.slice(0,3);
-      els.message.textContent="Bernd durchsucht aktuelle Webquellen für die Top 3…";
+      const webTop=strictCandidates;
+      els.message.textContent=`Bernd durchsucht aktuelle Webquellen für ${webTop.length} strenge Tor-Kandidaten…`;
       for(let i=0;i<webTop.length;i++){
         const r=webTop[i];
         const q1=`"${r.home}" "${r.away}" injuries illness suspension return rotation expected lineup team news ${r.date.slice(0,10)} football`;
@@ -659,11 +675,13 @@ async function analyze(){
       }
     }
 
-    results=goalCandidates.slice(0,10);
+    results=strictCandidates;
     render();
     els.progressBar.style.width="100%";
-    const webNote=webKey?" Top 3 wurden zusätzlich in vier Web-Kategorien recherchiert.":" Web-Recherche blieb offen, weil kein Tavily-Key gespeichert ist.";
-    els.message.textContent=`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. Tabelle zeigt die ${results.length} besten Tor-Kandidaten mit ehrlicher Modellwahrscheinlichkeit.${webNote}`;
+    const webNote=webKey&&results.length?` ${results.length} Kandidaten wurden zusätzlich in vier Web-Kategorien recherchiert.`:(!webKey?" Web-Recherche blieb offen, weil kein Tavily-Key gespeichert ist.":"");
+    els.message.textContent=results.length
+      ?`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. ${results.length} Spiele erfüllen heute den strengen Torfilter.${webNote}`
+      :`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. Heute erfüllt kein vollständig geprüftes Spiel den strengen Torfilter – deshalb werden keine schwachen 0:1- oder 1:1-Tipps angezeigt.${webNote}`;
   }catch(e){
     els.message.textContent="Fehler: "+friendlyError(e);
   }finally{
