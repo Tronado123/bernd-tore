@@ -41,6 +41,7 @@ const tendencyHeading=document.querySelector("thead th:nth-child(6)");
 if(tendencyHeading) tendencyHeading.textContent="Wahrscheinlichster Endstand";
 const scoreHeading=document.querySelector("thead th:nth-child(5)");
 if(scoreHeading){
+  scoreHeading.textContent="API-Signal";
   const over35Heading=document.createElement("th");
   over35Heading.textContent="Ü 3,5";
   const firstHalfHeading=document.createElement("th");
@@ -51,9 +52,9 @@ if(scoreHeading){
 const resultsTable=document.querySelector("table");
 if(resultsTable) resultsTable.style.minWidth="1080px";
 const tableTitle=document.querySelector(".table-head h2");
-if(tableTitle) tableTitle.textContent="🔥 Torstärkste Spiele aus allen geprüften Ligen";
+if(tableTitle) tableTitle.textContent="🔥 Beste Tor-Kandidaten aus allen geprüften Ligen";
 const tableNote=document.querySelector(".table-head .muted");
-if(tableNote) tableNote.textContent="Nur Spiele mit starkem Tor-Signal werden angezeigt. Keine Garantie.";
+if(tableNote) tableNote.textContent="Nach Ü-2,5-Wahrscheinlichkeit sortiert; Stärke wird als sehr hoch, hoch, mittel oder niedrig gekennzeichnet. Keine Garantie.";
 
 let selectedCountries = new Set(DEFAULT_COUNTRIES.map(x=>x[1]));
 let results = [];
@@ -228,14 +229,6 @@ function predictionScore(p){
   return Math.max(35,Math.min(92,score));
 }
 
-function hasStrongGoalSignal(item){
-  const prediction=item.prediction?.predictions||{};
-  const underOver=String(prediction.under_over||"").toLowerCase();
-  const advice=String(prediction.advice||"").toLowerCase();
-  const expected=modelExpectedGoals(item);
-  return expected.home+expected.away>=3 || item.score>=62 || /\+\s*(2\.5|3\.5|4\.5)/.test(underOver) || underOver.includes("over") || advice.includes("over");
-}
-
 function spreadAcrossLeagues(fixtures,limit){
   const groups=new Map();
   fixtures.forEach(f=>{
@@ -346,16 +339,28 @@ function probabilityAtLeast(lambda,minGoals){
 function modelProbabilities(item){
   const expected=modelExpectedGoals(item);
   const total=expected.home+expected.away;
-  const stats=item.homeStats&&item.awayStats?{
-    over35:(item.homeStats.over35Pct+item.awayStats.over35Pct)/200,
-    firstHalf:item.homeStats.htValid>=3&&item.awayStats.htValid>=3
-      ?(item.homeStats.firstHalfOver15Pct+item.awayStats.firstHalfOver15Pct)/200
-      :null
-  }:null;
+  const poissonOver25=probabilityAtLeast(total,3);
+  const poissonOver35=probabilityAtLeast(total,4);
+  const poissonFirstHalf=probabilityAtLeast(total*0.45,2);
+  const hasForm=item.homeStats?.n>=3&&item.awayStats?.n>=3;
+  const hasHalfForm=item.homeStats?.htValid>=3&&item.awayStats?.htValid>=3;
+  const historicalOver25=hasForm?(item.homeStats.overPct+item.awayStats.overPct)/200:null;
+  const historicalOver35=hasForm?(item.homeStats.over35Pct+item.awayStats.over35Pct)/200:null;
+  const historicalFirstHalf=hasHalfForm
+    ?(item.homeStats.firstHalfOver15Pct+item.awayStats.firstHalfOver15Pct)/200
+    :null;
   return {
-    over35:stats?.over35??probabilityAtLeast(total,4),
-    firstHalfOver15:stats?.firstHalf??probabilityAtLeast(total*0.45,2)
+    over25:historicalOver25==null?poissonOver25:historicalOver25*0.6+poissonOver25*0.4,
+    over35:historicalOver35==null?poissonOver35:historicalOver35*0.6+poissonOver35*0.4,
+    firstHalfOver15:historicalFirstHalf==null?poissonFirstHalf:historicalFirstHalf*0.6+poissonFirstHalf*0.4
   };
+}
+
+function confidenceLabel(probability){
+  if(probability>=0.68) return "sehr hoch";
+  if(probability>=0.58) return "hoch";
+  if(probability>=0.48) return "mittel";
+  return "niedrig";
 }
 
 function tendency(item){
@@ -405,13 +410,9 @@ function topScorersForTeams(players, homeId, awayId){
 }
 
 function researchStatus(r){
-  const checks=[
-    !!r.homeStats,!!r.awayStats,Array.isArray(r.h2h),Array.isArray(r.injuries),
-    Array.isArray(r.sidelinedHome),Array.isArray(r.sidelinedAway),
-    Array.isArray(r.transfersHome),Array.isArray(r.transfersAway),
-    !!r.coachHome||!!r.coachAway,Array.isArray(r.lineups),
-    !!r.teamStatsHome||!!r.teamStatsAway,Array.isArray(r.topScorers),!!r.prediction,!!r.webResearch
-  ];
+  const c=r.coverage||{};
+  const checks=[c.form,c.h2h,c.injuries,c.sidelined,c.transfers,c.coaches,c.lineups,c.teamStats,c.topScorers,c.prediction,
+    c.webPersonnel,c.webTactics,c.webMotivation,c.webConditions];
   const done=checks.filter(Boolean).length;
   return {done,total:checks.length};
 }
@@ -444,12 +445,12 @@ function render(){
       <td class="rank">${i+1}</td>
       <td>${escapeHtml(r.country)}<br><span class="tiny">${escapeHtml(r.league)}</span></td>
       <td class="match">${escapeHtml(r.home)} – ${escapeHtml(r.away)}</td>
-      <td class="over">Ü 2,5<br><span class="fire">${stars(r.score)}</span></td>
+      <td class="over">${Math.round(probabilities.over25*100)}%<br><span class="tiny">${confidenceLabel(probabilities.over25)}</span></td>
       <td class="over">${Math.round(probabilities.over35*100)}%</td>
       <td class="over">${Math.round(probabilities.firstHalfOver15*100)}%</td>
       <td class="score">${Math.round(r.score)}/100</td>
       <td>${escapeHtml(tendency(r))}</td>
-      <td><span class="${rs.done>=10?'research-ok':'research-partial'}">${rs.done}/${rs.total}</span></td>
+      <td><span class="${rs.done===rs.total?'research-ok':'research-partial'}">${rs.done}/${rs.total}</span></td>
       <td><button class="secondary detailBtn">Ansehen</button></td>`;
     tr.querySelector(".detailBtn").onclick=()=>openDetails(r,i+1);
     els.body.appendChild(tr);
@@ -458,22 +459,24 @@ function render(){
 
 function openDetails(r,rank){
   const hs=r.homeStats,as=r.awayStats, rs=researchStatus(r);
+  const probabilities=modelProbabilities(r);
+  const c=r.coverage||{};
   const transfers=[...(r.transfersHome||[]),...(r.transfersAway||[])].slice(0,12);
   const scorerHtml=(r.topScorers||[]).map(x=>`<div class="source-pill"><span>${escapeHtml(x.name)} (${escapeHtml(x.team)})</span><b>${Number(x.goals)||0} Tore</b></div>`).join("");
   const transferHtml=transfers.map(x=>`<div class="source-pill"><span>${escapeHtml(x.type)}: ${escapeHtml(x.player)}</span><span>${escapeHtml(x.date||"")}</span></div>`).join("");
   const checks=[
-    ["Letzte 20 / Form",!!hs&&!!as],["H2H bis 10",Array.isArray(r.h2h)],["Verletzungen",Array.isArray(r.injuries)],
-    ["Sidelined",Array.isArray(r.sidelinedHome)&&Array.isArray(r.sidelinedAway)],
-    ["Transfers",Array.isArray(r.transfersHome)&&Array.isArray(r.transfersAway)],
-    ["Trainer",!!r.coachHome||!!r.coachAway],["Aufstellungen",Array.isArray(r.lineups)],
-    ["Teamstatistik",!!r.teamStatsHome||!!r.teamStatsAway],["Top-Torjäger",Array.isArray(r.topScorers)],
-    ["API-Prognose",!!r.prediction],["Web-News / Personal / Taktik",!!r.webResearch]
+    ["Form, Heim/Auswärts und Tore",c.form],["Direkter Vergleich (H2H)",c.h2h],
+    ["Verletzungen und Sperren",c.injuries],["Rückkehrer / Sidelined",c.sidelined],
+    ["Transfers",c.transfers],["Trainer",c.coaches],["Aufstellungen / Rotation",c.lineups],
+    ["Team-Saisonstatistik",c.teamStats],["Top-Torjäger",c.topScorers],["API-Prognose",c.prediction],
+    ["Web: Personal und Ausfälle",c.webPersonnel],["Web: Taktik und Matchup",c.webTactics],
+    ["Web: Motivation und Vereinslage",c.webMotivation],["Web: Wetter, Platz, Schiedsrichter, Reise",c.webConditions]
   ];
   els.details.innerHTML=`
     <div class="eyebrow">RANG ${rank} • ${escapeHtml(r.country)} • ${escapeHtml(r.league)}</div>
     <h2 style="font-size:24px;margin-top:6px">${escapeHtml(r.home)} – ${escapeHtml(r.away)}</h2>
-    <p class="over">Bernd: Über 2,5 • ${stars(r.score)} • Score ${Math.round(r.score)}/100</p>
-    <p class="muted">Recherche-Abdeckung: ${rs.done}/${rs.total} strukturierte Prüfpunkte</p>
+    <p class="over">Ü 2,5: ${Math.round(probabilities.over25*100)}% • Ü 3,5: ${Math.round(probabilities.over35*100)}% • Modell-Endstand: ${escapeHtml(tendency(r))}</p>
+    <p class="muted">Recherche-Abdeckung: ${rs.done}/${rs.total} tatsächlich ausgeführte Prüfpunkte</p>
 
     <div class="source-list">
       ${checks.map(([n,ok])=>`<div class="source-pill"><span>${n}</span><span class="${ok?'yes':'no'}">${ok?'geprüft':'offen'}</span></div>`).join("")}
@@ -544,15 +547,18 @@ async function analyze(){
     for(let i=0;i<candidates.length;i++){
       const f=candidates[i].f;
       let pred=null;
+      let predictionChecked=false;
       try{
         const j=await api(`/predictions?fixture=${f.fixture.id}`);
         pred=j.response?.[0]||null;
+        predictionChecked=true;
       }catch(e){}
       scored.push({
         fixtureId:f.fixture.id,country:f.league.country,league:f.league.name,
         home:f.teams.home.name,away:f.teams.away.name,
         homeId:f.teams.home.id,awayId:f.teams.away.id,
-        score:predictionScore(pred),prediction:pred,date:f.fixture.date
+        score:predictionScore(pred),prediction:pred,date:f.fixture.date,
+        coverage:{prediction:predictionChecked}
       });
       els.progressBar.style.width=`${25+35*(i+1)/candidates.length}%`;
     }
@@ -583,6 +589,7 @@ async function analyze(){
         ]);
 
         const resp=n=>core[n].status==="fulfilled"?(core[n].value.response||[]):[];
+        const ok=n=>core[n].status==="fulfilled";
         const homeFix=resp(0), awayFix=resp(1), h2h=resp(2), injuries=resp(3);
         r.homeStats=recentStats(homeFix,r.homeId);
         r.awayStats=recentStats(awayFix,r.awayId);
@@ -592,6 +599,10 @@ async function analyze(){
         r.transfersAway=latestTransfers(resp(7),r.awayId);
         r.coachHome=coachSummary(resp(8)); r.coachAway=coachSummary(resp(9));
         r.lineups=resp(10);
+        Object.assign(r.coverage,{
+          form:ok(0)&&ok(1),h2h:ok(2),injuries:ok(3),sidelined:ok(4)&&ok(5),
+          transfers:ok(6)&&ok(7),coaches:ok(8)&&ok(9),lineups:ok(10)
+        });
 
         // Saisonstatistik und Torjäger nur, wenn Liga/Season vorhanden.
         if(leagueId&&season){
@@ -604,6 +615,8 @@ async function analyze(){
           r.teamStatsAway=extra[1].status==="fulfilled"?extra[1].value.response:null;
           const top=extra[2].status==="fulfilled"?(extra[2].value.response||[]):[];
           r.topScorers=topScorersForTeams(top,r.homeId,r.awayId);
+          r.coverage.teamStats=extra[0].status==="fulfilled"&&extra[1].status==="fulfilled";
+          r.coverage.topScorers=extra[2].status==="fulfilled";
         }
 
         r.score=deepScore(r.score,r.homeStats,r.awayStats,h2h,injuries);
@@ -611,15 +624,11 @@ async function analyze(){
       }
     }
     const goalCandidates=scored
-      .filter(hasStrongGoalSignal)
       .sort((a,b)=>{
-        const totalB=modelExpectedGoals(b).home+modelExpectedGoals(b).away;
-        const totalA=modelExpectedGoals(a).home+modelExpectedGoals(a).away;
-        return totalB-totalA||b.score-a.score;
+        const probsB=modelProbabilities(b),probsA=modelProbabilities(a);
+        return Number(!!b.coverage?.prediction)-Number(!!a.coverage?.prediction)
+          ||probsB.over25-probsA.over25||probsB.over35-probsA.over35||b.score-a.score;
       });
-    if(!goalCandidates.length){
-      throw new Error("Heute wurde kein Spiel mit ausreichend starkem Tor-Signal gefunden. Bernd zeigt bewusst keine schwachen Tipps an.");
-    }
 
     // Aktuelle Web-Recherche für die drei torstärksten Kandidaten.
     const webKey=localStorage.getItem("berndTavilyKey")||els.tavilyKey?.value.trim();
@@ -628,22 +637,33 @@ async function analyze(){
       els.message.textContent="Bernd durchsucht aktuelle Webquellen für die Top 3…";
       for(let i=0;i<webTop.length;i++){
         const r=webTop[i];
-        const q1=`"${r.home}" "${r.away}" injuries injury illness suspended suspension team news lineup ${r.date.slice(0,10)} football`;
-        const q2=`"${r.home}" "${r.away}" transfer signing coach manager trainer press conference latest football news`;
+        const q1=`"${r.home}" "${r.away}" injuries illness suspension return rotation expected lineup team news ${r.date.slice(0,10)} football`;
+        const q2=`"${r.home}" "${r.away}" tactics formation pressing counter attack set pieces xG matchup football`;
+        const q3=`"${r.home}" "${r.away}" must win derby motivation coach change unrest press conference football`;
+        const q4=`"${r.home}" "${r.away}" weather pitch referee travel distance venue conditions ${r.date.slice(0,10)} football`;
         const searches=await Promise.allSettled([
           tavilySearch(q1,"news","month"),
-          tavilySearch(q2,"general","month")
+          tavilySearch(q2,"general","month"),
+          tavilySearch(q3,"news","month"),
+          tavilySearch(q4,"general","month")
         ]);
         const vals=searches.map(x=>x.status==="fulfilled"?x.value:null);
         r.webResearch=webResearchSummary(vals);
+        Object.assign(r.coverage,{
+          webPersonnel:searches[0].status==="fulfilled",
+          webTactics:searches[1].status==="fulfilled",
+          webMotivation:searches[2].status==="fulfilled",
+          webConditions:searches[3].status==="fulfilled"
+        });
         els.progressBar.style.width=`${88+10*(i+1)/webTop.length}%`;
       }
     }
 
-    results=goalCandidates.slice(0,15);
+    results=goalCandidates.slice(0,10);
     render();
     els.progressBar.style.width="100%";
-    els.message.textContent=`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. Angezeigt werden nur ${results.length} Spiele mit starkem Tor-Signal.`;
+    const webNote=webKey?" Top 3 wurden zusätzlich in vier Web-Kategorien recherchiert.":" Web-Recherche blieb offen, weil kein Tavily-Key gespeichert ist.";
+    els.message.textContent=`Fertig: ${fixtures.length} Ligaspiele gefunden, ${candidates.length} geprüft. Tabelle zeigt die ${results.length} besten Tor-Kandidaten mit ehrlicher Modellwahrscheinlichkeit.${webNote}`;
   }catch(e){
     els.message.textContent="Fehler: "+friendlyError(e);
   }finally{
@@ -664,11 +684,11 @@ els.demoBtn.onclick=()=>{results=demo.map(x=>({...x}));render();els.message.text
 
 els.exportBtn.onclick=()=>{
   if(!results.length)return;
-  const rows=[["Rang","Land","Liga","Begegnung","Tipp","Ü 3,5","1. HZ Ü 1,5","Score","Wahrscheinlichster Endstand"]];
-  results.slice(0,20).forEach((r,i)=>{
+  const rows=[["Rang","Land","Liga","Begegnung","Ü 2,5","Ü 3,5","1. HZ Ü 1,5","Score","Wahrscheinlichster Endstand"]];
+  results.slice(0,10).forEach((r,i)=>{
     const probabilities=modelProbabilities(r);
     rows.push([
-      i+1,r.country,r.league,`${r.home} - ${r.away}`,"Über 2,5",
+      i+1,r.country,r.league,`${r.home} - ${r.away}`,`${Math.round(probabilities.over25*100)}%`,
       `${Math.round(probabilities.over35*100)}%`,`${Math.round(probabilities.firstHalfOver15*100)}%`,
       Math.round(r.score),tendency(r)
     ]);
